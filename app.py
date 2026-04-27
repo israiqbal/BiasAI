@@ -999,7 +999,7 @@ elif st.session_state.current_page == "about":
 st.markdown("<br><hr>", unsafe_allow_html=True)
 st.markdown("""
 <div style="text-align: center; color: #64748b; font-size: 12px; padding: 20px 0;">
-    <p>Built with ❤️ | © 2026 BIAS AI | Enterprise Fairness Platform</p>
+    <p> © 2026 BIAS AI | Enterprise Fairness Platform</p>
     <p style="margin-top: 8px;">Ethical AI starts with transparency. Let's build fair systems together.</p>
 </div>
 """, unsafe_allow_html=True)
