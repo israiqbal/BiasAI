@@ -22,6 +22,43 @@ from reportlab.lib.styles import getSampleStyleSheet
 from llm_utils import get_bias_explanation
 
 # ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+def encode_target_column(df, target):
+    """Smart binary encoding of target column for any dataset."""
+    col = df[target]
+    unique_vals = col.dropna().unique()
+
+    # Already binary 0/1
+    if set(unique_vals).issubset({0, 1, 0.0, 1.0}):
+        return col.astype(int)
+
+    # Exactly 2 unique values
+    if len(unique_vals) == 2:
+        sorted_vals = sorted(unique_vals, key=str)
+        mapping = {sorted_vals[0]: 0, sorted_vals[1]: 1}
+        return col.map(mapping).astype(int)
+
+    # Numeric with many values — median threshold
+    if pd.api.types.is_numeric_dtype(col):
+        median_val = col.median()
+        return (col > median_val).astype(int)
+
+    # Categorical with many values — most frequent = 0, rest = 1
+    most_frequent = col.value_counts().index[0]
+    return (col != most_frequent).astype(int)
+
+
+def safe_disparate_impact(g1_rate, g2_rate):
+    """Calculate disparate impact ratio safely, avoiding division by zero."""
+    if g1_rate > 0:
+        return g2_rate / g1_rate
+    elif g2_rate > 0:
+        return g1_rate / g2_rate
+    return 1.0
+
+
+# ============================================================================
 # PAGE CONFIG
 # ============================================================================
 st.set_page_config(
@@ -702,95 +739,127 @@ def analyze_page():
             target = st.selectbox("🎯 Select Target Column (what you're predicting)", df.columns)
         with col2:
             sensitive = st.selectbox("⚠️ Select Sensitive Attribute (protected characteristic)", df.columns)
-        
+
+        # Validate & select groups for sensitive attribute
+        unique_groups = df[sensitive].dropna().unique()
+
+        if len(unique_groups) < 2:
+            st.error("⚠️ The sensitive attribute must have at least 2 unique values for comparison.")
+            return
+
+        if len(unique_groups) == 2:
+            group1, group2 = unique_groups[0], unique_groups[1]
+        else:
+            st.info(f"ℹ️ The sensitive attribute has {len(unique_groups)} unique values. Select 2 groups to compare.")
+            gcol1, gcol2 = st.columns(2)
+            with gcol1:
+                group1 = st.selectbox("Group 1", unique_groups, index=0, key="group1_select")
+            with gcol2:
+                remaining = [g for g in unique_groups if g != group1]
+                group2 = st.selectbox("Group 2", remaining, index=0, key="group2_select")
+
         st.markdown("<br>", unsafe_allow_html=True)
-        
+
         if st.button("🚀 Run Bias Analysis", use_container_width=True, key="run_analysis"):
             with st.spinner("Analyzing... this may take a moment"):
-                
-                # Data Processing
-                df[target] = df[target].apply(lambda x: 1 if ">50K" in str(x) else 0)
-                
-                X = df.drop(columns=[target])
-                y = df[target]
-                X_encoded = pd.get_dummies(X)
-                
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X_encoded, y, test_size=0.2, random_state=42
-                )
-                
-                scaler = StandardScaler(with_mean=False)
-                X_train = scaler.fit_transform(X_train)
-                X_test = scaler.transform(X_test)
-                
-                model = LogisticRegression(max_iter=5000, solver='liblinear')
-                model.fit(X_train, y_train)
-                preds = model.predict(X_test)
-                
-                df_test = df.loc[y_test.index].copy()
-                df_test['pred'] = preds
-                
-                g1 = df_test[df_test[sensitive] == df[sensitive].unique()[0]]['pred'].mean()
-                g2 = df_test[df_test[sensitive] == df[sensitive].unique()[1]]['pred'].mean()
-                di_ratio = g2 / g1 if g1 > 0 else 0
-                
-                # Mitigation
-                X2 = df.drop(columns=[target, sensitive])
-                y2 = df[target]
-                X2 = pd.get_dummies(X2)
-                
-                X_train2, X_test2, y_train2, y_test2 = train_test_split(
-                    X2, y2, test_size=0.2, random_state=42
-                )
-                
-                idx = X_test2.index
-                
-                scaler2 = StandardScaler(with_mean=False)
-                X_train2 = scaler2.fit_transform(X_train2)
-                X_test2 = scaler2.transform(X_test2)
-                
-                model2 = LogisticRegression(max_iter=5000, solver='liblinear')
-                model2.fit(X_train2, y_train2)
-                preds2 = model2.predict(X_test2)
-                
-                df_test2 = df.loc[idx].copy()
-                df_test2['pred'] = preds2
-                
-                g1_after = df_test2[df_test2[sensitive] == df[sensitive].unique()[0]]['pred'].mean()
-                g2_after = df_test2[df_test2[sensitive] == df[sensitive].unique()[1]]['pred'].mean()
-                
-                # Store results
-                st.session_state.analysis_results = {
-                    'g1_before': g1,
-                    'g2_before': g2,
-                    'g1_after': g1_after,
-                    'g2_after': g2_after,
-                    'di_ratio': di_ratio,
-                    'target': target,
-                    'sensitive': sensitive,
-                    'fig_before': None,
-                    'fig_after': None
-                }
-                
-                st.session_state.analysis_complete = True
-                st.rerun()
+                try:
+                    # Smart target encoding (works with any CSV)
+                    df[target] = encode_target_column(df, target)
+
+                    X = df.drop(columns=[target])
+                    y = df[target]
+                    X_encoded = pd.get_dummies(X)
+
+                    X_train, X_test, y_train, y_test = train_test_split(
+                        X_encoded, y, test_size=0.2, random_state=42
+                    )
+
+                    scaler = StandardScaler(with_mean=False)
+                    X_train = scaler.fit_transform(X_train)
+                    X_test = scaler.transform(X_test)
+
+                    model = LogisticRegression(max_iter=5000, solver='liblinear')
+                    model.fit(X_train, y_train)
+                    preds = model.predict(X_test)
+
+                    df_test = df.loc[y_test.index].copy()
+                    df_test['pred'] = preds
+
+                    # Safe group rate calculation
+                    g1_mask = df_test[sensitive] == group1
+                    g2_mask = df_test[sensitive] == group2
+                    g1 = df_test.loc[g1_mask, 'pred'].mean() if g1_mask.any() else 0.0
+                    g2 = df_test.loc[g2_mask, 'pred'].mean() if g2_mask.any() else 0.0
+                    di_ratio = safe_disparate_impact(g1, g2)
+
+                    # Mitigation - retrain without sensitive attribute
+                    X2 = df.drop(columns=[target, sensitive])
+                    y2 = df[target]
+                    X2 = pd.get_dummies(X2)
+
+                    X_train2, X_test2, y_train2, y_test2 = train_test_split(
+                        X2, y2, test_size=0.2, random_state=42
+                    )
+
+                    idx = X_test2.index
+
+                    scaler2 = StandardScaler(with_mean=False)
+                    X_train2 = scaler2.fit_transform(X_train2)
+                    X_test2 = scaler2.transform(X_test2)
+
+                    model2 = LogisticRegression(max_iter=5000, solver='liblinear')
+                    model2.fit(X_train2, y_train2)
+                    preds2 = model2.predict(X_test2)
+
+                    df_test2 = df.loc[idx].copy()
+                    df_test2['pred'] = preds2
+
+                    # Safe group rate calculation after mitigation
+                    g1_after_mask = df_test2[sensitive] == group1
+                    g2_after_mask = df_test2[sensitive] == group2
+                    g1_after = df_test2.loc[g1_after_mask, 'pred'].mean() if g1_after_mask.any() else 0.0
+                    g2_after = df_test2.loc[g2_after_mask, 'pred'].mean() if g2_after_mask.any() else 0.0
+
+                    # Store results
+                    st.session_state.analysis_results = {
+                        'g1_before': g1,
+                        'g2_before': g2,
+                        'g1_after': g1_after,
+                        'g2_after': g2_after,
+                        'di_ratio': di_ratio,
+                        'target': target,
+                        'sensitive': sensitive,
+                        'group1': str(group1),
+                        'group2': str(group2),
+                        'fig_before': None,
+                        'fig_after': None
+                    }
+
+                    st.session_state.analysis_complete = True
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"❌ Analysis failed: {str(e)}")
+                    st.info("💡 Make sure your target column is suitable for binary classification and the sensitive attribute has distinct groups.")
     
     # Display Results
     if st.session_state.analysis_complete and "analysis_results" in st.session_state:
         results = st.session_state.analysis_results
-        
+        g1_name = results.get('group1', 'Group 1')
+        g2_name = results.get('group2', 'Group 2')
+
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
         st.markdown('<div class="section-title">📊 Analysis Results</div>', unsafe_allow_html=True)
-        
+
         # Metrics Grid
         st.markdown('<h3 style="color: #cbd5e1; margin-bottom: 20px;">Key Metrics</h3>', unsafe_allow_html=True)
-        
+
         metric_cols = st.columns(4)
         metrics = [
-            ("Before - Group 1", results['g1_before'], "📈"),
-            ("Before - Group 2", results['g2_before'], "📉"),
-            ("After - Group 1", results['g1_after'], "✅"),
-            ("After - Group 2", results['g2_after'], "✅"),
+            (f"Before - {g1_name}", results['g1_before'], "📈"),
+            (f"Before - {g2_name}", results['g2_before'], "📉"),
+            (f"After - {g1_name}", results['g1_after'], "✅"),
+            (f"After - {g2_name}", results['g2_after'], "✅"),
         ]
         
         for col, (label, value, icon) in zip(metric_cols, metrics):
@@ -830,8 +899,14 @@ def analyze_page():
                 'di_ratio': results['di_ratio']
             }
             
-            gemini_key = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
-            groq_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
+            try:
+                gemini_key = st.secrets.get("GEMINI_API_KEY", None) or os.getenv("GEMINI_API_KEY")
+            except Exception:
+                gemini_key = os.getenv("GEMINI_API_KEY")
+            try:
+                groq_key = st.secrets.get("GROQ_API_KEY", None) or os.getenv("GROQ_API_KEY")
+            except Exception:
+                groq_key = os.getenv("GROQ_API_KEY")
             
             result = get_bias_explanation(
                 bias_findings,
@@ -859,7 +934,7 @@ def analyze_page():
             fig, ax = plt.subplots(figsize=(8, 5))
             fig.patch.set_facecolor('#0f172a')
             ax.set_facecolor('#1a1f3a')
-            bars = ax.bar(['Group 1', 'Group 2'], [results['g1_before'], results['g2_before']], 
+            bars = ax.bar([g1_name, g2_name], [results['g1_before'], results['g2_before']], 
                           color=['#3b82f6', '#ef4444'], edgecolor='#cbd5e1', linewidth=1.5)
             ax.set_title("Before Mitigation", color='#f1f5f9', fontsize=14, fontweight='bold', pad=20)
             ax.set_ylabel("Positive Rate", color='#cbd5e1')
@@ -875,7 +950,7 @@ def analyze_page():
             fig2, ax2 = plt.subplots(figsize=(8, 5))
             fig2.patch.set_facecolor('#0f172a')
             ax2.set_facecolor('#1a1f3a')
-            bars2 = ax2.bar(['Group 1', 'Group 2'], [results['g1_after'], results['g2_after']], 
+            bars2 = ax2.bar([g1_name, g2_name], [results['g1_after'], results['g2_after']], 
                            color=['#10b981', '#f59e0b'], edgecolor='#cbd5e1', linewidth=1.5)
             ax2.set_title("After Mitigation", color='#f1f5f9', fontsize=14, fontweight='bold', pad=20)
             ax2.set_ylabel("Positive Rate", color='#cbd5e1')

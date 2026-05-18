@@ -1,0 +1,21 @@
+# Secrets & API Keys — NEVER commit these
+.streamlit/secrets.toml
+secrets.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated files
+chart.png
+*.pdf
+reports.json
+users.json
