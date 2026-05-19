@@ -15,8 +15,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
 # Import LLM utilities
 from llm_utils import get_bias_explanation
@@ -967,39 +970,366 @@ def analyze_page():
         # PDF Export
         st.markdown('<h3 style="color: #cbd5e1; margin-bottom: 16px;">📥 Export Report</h3>', unsafe_allow_html=True)
         
-        def create_pdf():
+        def create_professional_pdf():
+            """Create a professional, colorful, detailed PDF report."""
             buffer = io.BytesIO()
-            doc = SimpleDocTemplate(buffer)
+            doc = SimpleDocTemplate(buffer, pagesize=(8.5*inch, 11*inch), 
+                                   rightMargin=0.5*inch, leftMargin=0.5*inch,
+                                   topMargin=0.5*inch, bottomMargin=0.5*inch)
+            
+            # Define custom styles
             styles = getSampleStyleSheet()
+            title_style = ParagraphStyle(
+                'CustomTitle',
+                parent=styles['Heading1'],
+                fontSize=28,
+                textColor=colors.HexColor('#1e3a8a'),
+                spaceAfter=12,
+                alignment=TA_CENTER,
+                fontName='Helvetica-Bold'
+            )
+            
+            heading_style = ParagraphStyle(
+                'CustomHeading',
+                parent=styles['Heading2'],
+                fontSize=16,
+                textColor=colors.HexColor('#1e40af'),
+                spaceAfter=10,
+                spaceBefore=10,
+                fontName='Helvetica-Bold'
+            )
+            
+            subheading_style = ParagraphStyle(
+                'SubHeading',
+                parent=styles['Normal'],
+                fontSize=12,
+                textColor=colors.HexColor('#3b82f6'),
+                spaceAfter=8,
+                fontName='Helvetica-Bold'
+            )
+            
+            normal_style = ParagraphStyle(
+                'CustomNormal',
+                parent=styles['Normal'],
+                fontSize=10,
+                textColor=colors.HexColor('#1f2937'),
+                spaceAfter=6,
+                leading=14
+            )
             
             content = []
             
-            content.append(Paragraph("AI Bias Detection Report", styles['Title']))
-            content.append(Spacer(1, 12))
+            # ===== TITLE PAGE =====
+            content.append(Spacer(1, 0.3*inch))
+            content.append(Paragraph("⚖️ AI BIAS DETECTION REPORT", title_style))
+            content.append(Spacer(1, 0.15*inch))
             
-            content.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
-            content.append(Paragraph(f"Target Column: {results['target']}", styles['Normal']))
-            content.append(Paragraph(f"Sensitive Attribute: {results['sensitive']}", styles['Normal']))
-            content.append(Spacer(1, 12))
+            date_style = ParagraphStyle('DateStyle', parent=styles['Normal'], 
+                                       fontSize=11, alignment=TA_CENTER, textColor=colors.grey)
+            content.append(Paragraph(f"Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}", 
+                                    date_style))
+            content.append(Spacer(1, 0.3*inch))
             
-            content.append(Paragraph("Before Mitigation", styles['Heading2']))
-            content.append(Paragraph(f"Group 1 Rate: {results['g1_before']:.2%}", styles['Normal']))
-            content.append(Paragraph(f"Group 2 Rate: {results['g2_before']:.2%}", styles['Normal']))
-            content.append(Paragraph(f"Disparate Impact Ratio: {results['di_ratio']:.2f}", styles['Normal']))
-            content.append(Spacer(1, 12))
+            # Executive Summary Box
+            summary_data = [
+                ['ANALYSIS OVERVIEW'],
+                [f'Target Column: <b>{results["target"]}</b>'],
+                [f'Sensitive Attribute: <b>{results["sensitive"]}</b>'],
+                [f'Group 1: <b>{results["group1"]}</b>'],
+                [f'Group 2: <b>{results["group2"]}</b>']
+            ]
+            summary_table = Table(summary_data, colWidths=[7.5*inch])
+            summary_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e3a8a')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                ('TOPPADDING', (0, 0), (-1, -1), 8),
+                ('LEFTPADDING', (0, 0), (-1, -1), 10),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e5e7eb')),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f0f9ff')),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -1), 10),
+            ]))
+            content.append(summary_table)
+            content.append(Spacer(1, 0.3*inch))
             
-            content.append(Paragraph("After Mitigation", styles['Heading2']))
-            content.append(Paragraph(f"Group 1 Rate: {results['g1_after']:.2%}", styles['Normal']))
-            content.append(Paragraph(f"Group 2 Rate: {results['g2_after']:.2%}", styles['Normal']))
+            # ===== KEY FINDINGS =====
+            content.append(Paragraph("📊 KEY FINDINGS", heading_style))
             
+            # Bias Status
+            di_ratio = results['di_ratio']
+            if di_ratio < 0.8:
+                bias_status = "🚨 HIGH BIAS DETECTED"
+                bias_color = colors.HexColor('#dc2626')
+                bias_desc = f"Disparate Impact Ratio: {di_ratio:.4f} (less than 0.8 indicates potential discrimination)"
+            else:
+                bias_status = "✅ FAIR MODEL"
+                bias_color = colors.HexColor('#059669')
+                bias_desc = f"Disparate Impact Ratio: {di_ratio:.4f} (above 0.8 indicates fair treatment)"
+            
+            bias_style = ParagraphStyle('BiasStatus', parent=styles['Normal'], 
+                                       fontSize=14, textColor=bias_color, 
+                                       fontName='Helvetica-Bold', alignment=TA_CENTER)
+            content.append(Paragraph(bias_status, bias_style))
+            content.append(Paragraph(bias_desc, normal_style))
+            content.append(Spacer(1, 0.2*inch))
+            
+            # ===== METRICS SECTION =====
+            content.append(Paragraph("📈 ANALYSIS RESULTS - KEY METRICS", heading_style))
+            content.append(Spacer(1, 0.1*inch))
+            
+            g1_before = results['g1_before']
+            g2_before = results['g2_before']
+            g1_after = results['g1_after']
+            g2_after = results['g2_after']
+            
+            # Before Mitigation Table
+            content.append(Paragraph("BEFORE MITIGATION (Original Model):", subheading_style))
+            before_data = [
+                ['Group', 'Selection Rate', 'Percentage'],
+                [results['group1'], f'{g1_before:.4f}', f'{g1_before*100:.2f}%'],
+                [results['group2'], f'{g2_before:.4f}', f'{g2_before*100:.2f}%'],
+                ['Difference', f'{abs(g1_before-g2_before):.4f}', f'{abs(g1_before-g2_before)*100:.2f}%'],
+            ]
+            before_table = Table(before_data, colWidths=[2*inch, 2.5*inch, 2.5*inch])
+            before_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#fee2e2')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#991b1b')),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+                ('BACKGROUND', (0, 1), (-1, 2), colors.HexColor('#fecaca')),
+                ('BACKGROUND', (0, 3), (-1, 3), colors.HexColor('#fca5a5')),
+                ('FONTNAME', (0, 3), (-1, 3), 'Helvetica-Bold'),
+            ]))
+            content.append(before_table)
+            content.append(Spacer(1, 0.15*inch))
+            
+            # After Mitigation Table
+            content.append(Paragraph("AFTER MITIGATION (Sensitive Attribute Removed):", 
+                                    subheading_style))
+            after_data = [
+                ['Group', 'Selection Rate', 'Percentage'],
+                [results['group1'], f'{g1_after:.4f}', f'{g1_after*100:.2f}%'],
+                [results['group2'], f'{g2_after:.4f}', f'{g2_after*100:.2f}%'],
+                ['Difference', f'{abs(g1_after-g2_after):.4f}', f'{abs(g1_after-g2_after)*100:.2f}%'],
+            ]
+            after_table = Table(after_data, colWidths=[2*inch, 2.5*inch, 2.5*inch])
+            after_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d1fae5')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#065f46')),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+                ('BACKGROUND', (0, 1), (-1, 2), colors.HexColor('#a7f3d0')),
+                ('BACKGROUND', (0, 3), (-1, 3), colors.HexColor('#6ee7b7')),
+                ('FONTNAME', (0, 3), (-1, 3), 'Helvetica-Bold'),
+            ]))
+            content.append(after_table)
+            content.append(Spacer(1, 0.15*inch))
+            
+            # Improvement Summary
+            bias_reduction = abs(g1_before-g2_before) - abs(g1_after-g2_after)
+            improvement_pct = (bias_reduction / abs(g1_before-g2_before) * 100) if abs(g1_before-g2_before) > 0 else 0
+            
+            improvement_style = ParagraphStyle('Improvement', parent=styles['Normal'], 
+                                               fontSize=10, textColor=colors.HexColor('#059669'),
+                                               fontName='Helvetica-Bold')
+            content.append(Paragraph(
+                f"<b>Bias Reduction:</b> {bias_reduction:.4f} ({improvement_pct:.1f}% improvement in fairness)",
+                improvement_style
+            ))
+            
+            # PAGE BREAK
+            content.append(PageBreak())
+            
+            # ===== VISUALIZATIONS PAGE =====
+            content.append(Paragraph("📊 VISUALIZATIONS", heading_style))
+            content.append(Spacer(1, 0.1*inch))
+            
+            # Create before chart with colors
+            fig_before, ax_before = plt.subplots(figsize=(5, 3), facecolor='white')
+            groups = [results['group1'], results['group2']]
+            rates_before = [g1_before, g2_before]
+            bars_before = ax_before.bar(groups, rates_before, color=['#3b82f6', '#ec4899'], alpha=0.8, edgecolor='black', linewidth=1.5)
+            ax_before.set_ylabel('Selection Rate', fontsize=11, fontweight='bold')
+            ax_before.set_title('BEFORE MITIGATION - Selection Rate by Group', fontsize=12, fontweight='bold', color='#1e3a8a')
+            ax_before.set_ylim(0, max(rates_before) * 1.2)
+            ax_before.grid(axis='y', alpha=0.3, linestyle='--')
+            
+            for bar, rate in zip(bars_before, rates_before):
+                height = bar.get_height()
+                ax_before.text(bar.get_x() + bar.get_width()/2., height,
+                              f'{rate*100:.1f}%', ha='center', va='bottom', fontweight='bold', fontsize=10)
+            
+            chart_before_path = "chart_before_report.png"
+            fig_before.savefig(chart_before_path, dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close(fig_before)
+            
+            # Create after chart
+            fig_after, ax_after = plt.subplots(figsize=(5, 3), facecolor='white')
+            rates_after = [g1_after, g2_after]
+            bars_after = ax_after.bar(groups, rates_after, color=['#10b981', '#f59e0b'], alpha=0.8, edgecolor='black', linewidth=1.5)
+            ax_after.set_ylabel('Selection Rate', fontsize=11, fontweight='bold')
+            ax_after.set_title('AFTER MITIGATION - Selection Rate by Group', fontsize=12, fontweight='bold', color='#059669')
+            ax_after.set_ylim(0, max(rates_after) * 1.2)
+            ax_after.grid(axis='y', alpha=0.3, linestyle='--')
+            
+            for bar, rate in zip(bars_after, rates_after):
+                height = bar.get_height()
+                ax_after.text(bar.get_x() + bar.get_width()/2., height,
+                             f'{rate*100:.1f}%', ha='center', va='bottom', fontweight='bold', fontsize=10)
+            
+            chart_after_path = "chart_after_report.png"
+            fig_after.savefig(chart_after_path, dpi=150, bbox_inches='tight', facecolor='white')
+            plt.close(fig_after)
+            
+            # Add charts to PDF
+            content.append(Paragraph("Model Performance: Comparison", subheading_style))
+            
+            content.append(Paragraph("<b>Before Mitigation</b>", normal_style))
+            if os.path.exists(chart_before_path):
+                content.append(Image(chart_before_path, width=5.5*inch, height=3.5*inch))
+            content.append(Spacer(1, 0.1*inch))
+            
+            content.append(Paragraph("<b>After Mitigation (Sensitive Attribute Removed)</b>", normal_style))
+            if os.path.exists(chart_after_path):
+                content.append(Image(chart_after_path, width=5.5*inch, height=3.5*inch))
+            content.append(Spacer(1, 0.15*inch))
+            
+            # PAGE BREAK
+            content.append(PageBreak())
+            
+            # ===== INTERPRETATION PAGE =====
+            content.append(Paragraph("🔍 DETAILED ANALYSIS & INTERPRETATION", heading_style))
+            content.append(Spacer(1, 0.1*inch))
+            
+            # What is Disparate Impact?
+            content.append(Paragraph("What is Disparate Impact Ratio (DI)?", subheading_style))
+            di_explanation = f"""
+            The Disparate Impact Ratio (DI) is calculated as: <b>Selection Rate of {results['group2']} / Selection Rate of {results['group1']}</b><br/>
+            <br/>
+            • <b>DI &lt; 0.8:</b> Potential discriminatory impact (80% rule violation)<br/>
+            • <b>DI ≥ 0.8:</b> Generally considered fair treatment<br/>
+            • <b>DI = 1.0:</b> Perfect parity between groups<br/>
+            <br/>
+            <b>Current Analysis DI Ratio: {di_ratio:.4f}</b>
+            """
+            content.append(Paragraph(di_explanation, normal_style))
+            content.append(Spacer(1, 0.15*inch))
+            
+            # Current Status
+            content.append(Paragraph("Current Model Status", subheading_style))
+            if di_ratio < 0.8:
+                status_text = f"""
+                ⚠️ <b>HIGH BIAS DETECTED</b><br/>
+                <br/>
+                Your model shows a disparate impact ratio of <b>{di_ratio:.4f}</b>, which falls below the 0.80 threshold.<br/>
+                This indicates that <b>{results['sensitive']}</b> may have a disparate impact on the model's predictions.<br/>
+                <br/>
+                <b>Selection Rates:</b><br/>
+                • {results['group1']}: {g1_before*100:.2f}%<br/>
+                • {results['group2']}: {g2_before*100:.2f}%<br/>
+                <br/>
+                The difference of {abs(g1_before-g2_before)*100:.2f} percentage points indicates potential bias in the model.
+                """
+            else:
+                status_text = f"""
+                ✅ <b>FAIR MODEL DETECTED</b><br/>
+                <br/>
+                Your model shows a disparate impact ratio of <b>{di_ratio:.4f}</b>, which exceeds the 0.80 threshold.<br/>
+                This suggests relatively fair treatment across groups for the <b>{results['sensitive']}</b> attribute.<br/>
+                <br/>
+                <b>Selection Rates:</b><br/>
+                • {results['group1']}: {g1_before*100:.2f}%<br/>
+                • {results['group2']}: {g2_before*100:.2f}%<br/>
+                <br/>
+                The difference of {abs(g1_before-g2_before)*100:.2f} percentage points is relatively minimal, indicating equitable treatment.
+                """
+            
+            content.append(Paragraph(status_text, normal_style))
+            content.append(Spacer(1, 0.15*inch))
+            
+            # Mitigation Strategy
+            content.append(Paragraph("Mitigation Strategy Applied", subheading_style))
+            mitigation_text = f"""
+            <b>Approach: Sensitive Attribute Removal</b><br/>
+            <br/>
+            The mitigation model removed the <b>{results['sensitive']}</b> attribute from the feature set to reduce potential bias.<br/>
+            <br/>
+            <b>Bias Reduction: {bias_reduction:.4f} ({improvement_pct:.1f}% improvement)</b><br/>
+            <br/>
+            <b>Results:</b><br/>
+            • Before: {abs(g1_before-g2_before)*100:.2f}% difference between groups<br/>
+            • After: {abs(g1_after-g2_after)*100:.2f}% difference between groups<br/>
+            <br/>
+            Note: This is a simple fairness approach. More sophisticated techniques (reweighting, fair representations, 
+            constraint-based methods) may provide better results in production scenarios.
+            """
+            content.append(Paragraph(mitigation_text, normal_style))
+            content.append(Spacer(1, 0.15*inch))
+            
+            # Recommendations
+            content.append(Paragraph("Recommendations", subheading_style))
+            recommendations = f"""
+            <b>1. Further Investigation:</b> Examine the training data for underlying biases in {results['sensitive']} representation.<br/>
+            <br/>
+            <b>2. Feature Engineering:</b> Consider proxy variables that might indirectly encode {results['sensitive']}.<br/>
+            <br/>
+            <b>3. Regular Auditing:</b> Continuously monitor model fairness across different demographic groups.<br/>
+            <br/>
+            <b>4. Stakeholder Review:</b> Engage with domain experts and affected communities in bias assessment.<br/>
+            <br/>
+            <b>5. Documentation:</b> Maintain records of fairness decisions and mitigation strategies used.<br/>
+            <br/>
+            <b>6. Legal Compliance:</b> Ensure your model meets regulatory requirements (FCRA, GDPR, Equal Credit Opportunity Act, etc.)
+            """
+            content.append(Paragraph(recommendations, normal_style))
+            
+            # PAGE BREAK
+            content.append(PageBreak())
+            
+            # ===== FOOTER PAGE =====
+            footer_style = ParagraphStyle('Footer', parent=styles['Normal'], 
+                                         fontSize=9, textColor=colors.grey, 
+                                         alignment=TA_CENTER)
+            
+            content.append(Spacer(1, 1.5*inch))
+            content.append(Paragraph("<b>About This Report</b>", subheading_style))
+            footer_text = """
+            This AI Bias Detection Report was generated using machine learning fairness analysis techniques.<br/>
+            The analysis measures disparate impact and applies mitigation strategies to improve model fairness.<br/>
+            <br/>
+            <b>Limitations:</b> This analysis provides statistical measures of fairness but does not account for all 
+            potential sources of bias (e.g., historical bias in training data, unmeasured proxies for protected attributes).<br/>
+            <br/>
+            <b>Important Disclaimer:</b> This tool provides analytical insights and should not be used as sole basis 
+            for compliance decisions. Legal and ethical review by qualified professionals is recommended.<br/>
+            <br/>
+            Generated by: AI Bias Detection Platform<br/>
+            Report Date: """ + datetime.now().strftime('%B %d, %Y')
+            
+            content.append(Paragraph(footer_text, normal_style))
+            
+            # Build PDF
             doc.build(content)
             buffer.seek(0)
             return buffer
         
-        pdf = create_pdf()
+        pdf = create_professional_pdf()
         
         st.download_button(
-            label="📄 Download Premium Report (PDF)",
+            label="📄 Download Professional Report",
             data=pdf,
             file_name=f"bias_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
             mime="application/pdf",
