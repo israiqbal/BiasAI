@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚖️ BIAS AI
+# ⚖️ BIAS AI Detector
 ### Enterprise Fairness Analysis Platform
 
 [![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
@@ -36,7 +36,7 @@ Built for teams that prioritize ethical, fair, and responsible AI.
 
 ## 🔭 Overview
 
-**BIAS AI** is an open-source, enterprise-grade AI fairness analysis platform that empowers data scientists, ML engineers, and compliance teams to detect and mitigate bias in machine learning models — without requiring deep ML expertise.
+**BIAS AI DETECTOR** is an open-source, enterprise-grade AI fairness analysis platform that empowers data scientists, ML engineers, and compliance teams to detect and mitigate bias in machine learning models — without requiring deep ML expertise.
 
 Upload any CSV dataset, select a target variable and a sensitive attribute (e.g., gender, race, age), and the platform will:
 
