@@ -241,6 +241,7 @@ st.markdown("""
         margin-left: auto;
         margin-right: auto;
         line-height: 1.6;
+        text-align: center;
     }
     
     .hero-cta {
@@ -1033,10 +1034,10 @@ def analyze_page():
             # Executive Summary Box
             summary_data = [
                 ['ANALYSIS OVERVIEW'],
-                [f'Target Column: <b>{results["target"]}</b>'],
-                [f'Sensitive Attribute: <b>{results["sensitive"]}</b>'],
-                [f'Group 1: <b>{results["group1"]}</b>'],
-                [f'Group 2: <b>{results["group2"]}</b>']
+                [Paragraph(f'Target Column: <b>{results["target"]}</b>', normal_style)],
+                [Paragraph(f'Sensitive Attribute: <b>{results["sensitive"]}</b>', normal_style)],
+                [Paragraph(f'Group 1: <b>{results["group1"]}</b>', normal_style)],
+                [Paragraph(f'Group 2: <b>{results["group2"]}</b>', normal_style)]
             ]
             summary_table = Table(summary_data, colWidths=[7.5*inch])
             summary_table.setStyle(TableStyle([
